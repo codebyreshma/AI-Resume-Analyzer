@@ -1,8 +1,34 @@
 import streamlit as st
 import re
+from components.sidebar import render_sidebar
+from components.header import render_header
+from components.styles import load_css
+from components.keyword_analysis import render_keyword_analysis
+from components.interview import render_interview_questions
+from components.cover_letter import render_cover_letter
+from components.checklist import render_checklist
+from components.insights import render_insights
+from components.dashboard import render_dashboard
+from components.summary import render_summary
+from components.export import render_export
+from components.history import render_history
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 from utils.pdf_reader import extract_text
-from utils.gemini import analyze_resume
+from utils.gemini import (
+    analyze_resume,
+    generate_interview_questions,
+    generate_cover_letter,
+    generate_checklist
+)
+from utils.analyzer import extract_score
+from utils.skills import extract_skills
+from utils.pdf_report import generate_pdf
+from utils.keyword_matcher import compare_keywords
 import pandas as pd
+
+
+
 
 # =====================================
 # Page Configuration
@@ -13,110 +39,51 @@ st.set_page_config(
     page_icon="🤖",
     layout="wide"
 )
+
+load_css()
 if "history" not in st.session_state:
     st.session_state.history = []
 
-st.markdown("""
-<style>
 
-.stButton>button{
-    background:#4F46E5;
-    color:white;
-    border-radius:10px;
-    height:50px;
-    font-size:18px;
-    font-weight:bold;
-}
-
-.stDownloadButton>button{
-    background:#16A34A;
-    color:white;
-    border-radius:10px;
-    height:45px;
-}
-
-div[data-testid="stMetric"]{
-    background:#f5f5f5;
-    padding:15px;
-    border-radius:12px;
-    border:1px solid #ddd;
-}
-
-</style>
-""", unsafe_allow_html=True)
 
 # =====================================
 # Sidebar
 # =====================================
 
-with st.sidebar:
-    st.title("🤖 AI Resume Analyzer")
+render_sidebar()
 
-    st.markdown("---")
 
-    st.success("### 🚀 Features")
 
-    st.markdown("""
-- 📄 Resume Upload
-- 💼 Job Description Matching
-- 📊 Resume Score
-- 🎯 ATS Score
-- 💡 AI Suggestions
-- 🚀 Interview Readiness
-""")
-
-    st.markdown("---")
-
-    st.subheader("🛠 Tech Stack")
-
-    st.markdown("""
-- Python
-- Streamlit
-- Groq AI
-- PDFPlumber
-""")
-
-    st.markdown("---")
-
-    st.caption("Made by Reshma ❤️")
 
 # =====================================
 # Main Page
 # =====================================
 
-st.title("🤖 AI Resume Analyzer")
 
-st.caption(
-    "Upload your resume and compare it with a Job Description using AI."
-)
-
+render_header()
 st.divider()
 
-uploaded_file = st.file_uploader(
-    "📄 Upload Resume (PDF)",
-    type=["pdf"],
-    help="Only PDF files are supported."
-)
+st.subheader("📄 Upload Your Resume")
 
+st.caption("Upload your resume in PDF format to begin AI analysis.")
+
+uploaded_file = st.file_uploader(
+    "",
+    type=["pdf"]
+)
 st.subheader("💼 Job Description")
 
+st.caption("Paste the job description to compare it with your resume.")
+
 job_description = st.text_area(
-    "Paste the Job Description",
+    "",
     height=200,
-    placeholder="Paste the company's job description here..."
+    placeholder="Paste the complete job description here..."
 )
 
 # =====================================
 # Helper Functions
 # =====================================
-
-def extract_score(pattern, text, suffix):
-    match = re.search(pattern, text, re.IGNORECASE | re.DOTALL)
-
-    if match:
-        return match.group(1) + suffix
-
-    return "N/A"
 
 # =====================================
 # Resume Processing
@@ -126,162 +93,212 @@ if uploaded_file is not None:
 
     resume_text = extract_text(uploaded_file)
 
-    st.success("✅ Resume uploaded successfully!")
+    st.markdown(f"""
+    <div style="
+        background:#ECFDF5;
+        border:1px solid #10B981;
+        border-radius:15px;
+        padding:18px;
+        margin-bottom:20px;
+    ">
+        <h4 style="color:#065F46;margin:0;">
+            ✅ Resume Uploaded Successfully
+        </h4>
+        <p style="margin:8px 0 0 0;color:#065F46;">
+            <b>File:</b> {uploaded_file.name}
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
 
-    with st.expander("📄 View Extracted Resume"):
-        st.text_area(
-            "",
+    with st.expander("📄 View Extracted Resume", expanded=False):
+
+        st.code(
             resume_text,
-            height=250
+            language=None
         )
 
     st.divider()
 
-    if st.button("🚀 Analyze Resume", use_container_width=True):
+    st.markdown("<br>", unsafe_allow_html=True)
 
+    if st.button(
+       "🚀 Analyze Resume",
+        use_container_width=True,
+        type="primary"
+    ):
         try:
 
-            with st.spinner("🤖 AI is analyzing your resume..."):
+            with st.spinner("🤖 AI is reviewing your resume against the job description..."):
 
                 result = analyze_resume(
                     resume_text,
                     job_description
                 )
 
+                interview_questions = generate_interview_questions(
+                    resume_text,
+                    job_description
+                )
+                 
+                cover_letter = generate_cover_letter(
+                    resume_text,
+                    job_description
+                )
+
+                matched_keywords, missing_keywords = compare_keywords(
+                    resume_text,
+                    job_description
+                )
+                
+                checklist = generate_checklist(
+                    resume_text,
+                    job_description
+                )
+
+            st.success("🎉 Analysis completed successfully!")
+           
             # =====================================
             # Extract Scores
             # =====================================
 
-            resume_score = extract_score(
-                r"Resume Score.*?(\d+)\s*/\s*100",
-                result,
-                "/100"
-            )
+            resume_score = f"{result['resume_score']}/100"
+            ats_score = f"{result['ats_score']}/100"
+            match_score = f"{result['match_score']}%"
 
-            ats_score = extract_score(
-                r"ATS Score.*?(\d+)\s*/\s*100",
-                result,
-                "/100"
-            )
+            resume_value = result["resume_score"]
+            ats_value = result["ats_score"]
+            match_value = result["match_score"]
 
-            match = re.search(
-                r"Resume Match Score.*?(\d+)\s*/\s*100|Resume Match Score.*?(\d+)%",
-                result,
-                re.IGNORECASE | re.DOTALL
-            )
+            # =====================================
+            # Resume Verdict
+            # =====================================
 
-            if match:
-                match_score = (match.group(1) or match.group(2)) + "%"
+            if match_value >= 85:
+                verdict = "🟢 Excellent! Your resume is a strong match for this role."
+                recommendation = "✅ You can confidently apply for this role."
+
+            elif match_value >= 70:
+                verdict = "🟡 Good match. A few improvements can make it stronger."
+                recommendation = "🛠 Improve the missing skills and tailor your resume before applying."
+
             else:
-                match_score = "N/A"
+                verdict = "🔴 Your resume needs significant improvements for this role."
+                recommendation = "📚 Focus on gaining the required skills and strengthening your resume first."
 
             # =====================================
-            # Score Cards
+            # Quick Summary
             # =====================================
 
-            col1, col2, col3 = st.columns(3)
+            render_summary(
+                resume_score,
+                ats_score,
+                match_score,
+                match_value,
+                verdict,
+                recommendation
+            )
 
-            with col1:
-                st.metric(
-                    "📄 Resume Score",
-                    resume_score
-                )
+            # =====================================
+            # Score Dashboard
+            # =====================================
 
-            with col2:
-                st.metric(
-                    "🎯 ATS Score",
-                    ats_score
-                )
-
-            with col3:
-                st.metric(
-                    "💼 Match Score",
-                    match_score
-                )
+            render_dashboard(
+                resume_score,
+                ats_score,
+                match_score,
+                resume_value,
+                ats_value,
+                match_value
+            )
 
             st.session_state.history.append({
                 "Resume Score": resume_score,
                 "ATS Score": ats_score,
                 "Match Score": match_score
             })
-            # =====================================
-            # Progress Bars
-            # =====================================
-
-            st.subheader("📈 Score Breakdown")
-
-            if resume_score != "N/A":
-                st.write(f"📄 Resume Score: **{resume_score}**")
-                st.progress(int(resume_score.replace('/100', '')) / 100)
-
-            if ats_score != "N/A":
-                st.write(f"🎯 ATS Score: **{ats_score}**")
-                st.progress(int(ats_score.replace('/100', '')) / 100)
-
-            if match_score != "N/A":
-                st.write(f"💼 Match Score: **{match_score}**")
-                st.progress(int(match_score.replace('%', '')) / 100)
-
-            st.divider()
+            
+            
 
             # =====================================
             # AI Report
             # =====================================
 
-            st.subheader("📊 AI Analysis")
+            st.divider()
 
-        
+            st.markdown("""
+            <h2 style="
+                text-align:center;
+                color:#2563EB;
+                margin-top:20px;
+                margin-bottom:5px;
+            ">
+                🤖 AI Analysis
+            </h2>
+
+            <p style="
+                text-align:center;
+                color:#6B7280;
+                margin-bottom:25px;
+            ">
+                Detailed insights generated by AI
+            </p>
+            """, unsafe_allow_html=True)
+
+            matching_skills = result["matching_skills"]
+            missing_skills = result["missing_skills"]
+
+            if matching_skills:
+                st.subheader("✅ Matching Skills")
+
+                cols = st.columns(4)
+
+                for i, skill in enumerate(matching_skills):
+                    cols[i % 4].success(skill)
+
+            if missing_skills:
+                st.subheader("❌ Missing Skills")
+
+                cols = st.columns(4)
+
+                for i, skill in enumerate(missing_skills):
+                    cols[i % 4].error(skill)
+
             # ---------- Display AI Report ----------
 
-            sections = result.split("##")
+            render_insights(result)
+                       
+            render_keyword_analysis(
+            matched_keywords,
+            missing_keywords
 
-            for section in sections:
-                section = section.strip()
-
-                if not section:
-                    continue
-
-                if "Matching Skills" in section:
-                    st.success("✅ " + section)
-
-                elif "Missing Skills" in section:
-                    st.error("❌ " + section)
-
-                elif "Strengths" in section:
-                    st.info("💪 " + section)
-
-                elif "Weaknesses" in section:
-                    st.warning("⚠️ " + section)
-
-                elif "Suggestions" in section:
-                    st.success("💡 " + section)
-
-                else:
-                    st.markdown("## " + section)
-
+            )
+            render_interview_questions(
+                interview_questions
+            )
+            
+            render_checklist(
+                checklist
+            ) 
         
 
  
 
-            st.download_button(
-               label="📥 Download AI Report",
-               data=result,
-               file_name="AI_Resume_Report.txt",
-               mime="text/plain",
-               use_container_width=True
-           )
+            generate_pdf(
+                 "AI_Resume_Report.pdf",
+                 resume_score,
+                 ats_score,
+                 match_score,
+                 str(result)
+            )
+            render_export(
+                resume_score,
+                ats_score,
+                match_score,
+                result
+            )
 
-            if st.session_state.history:
-
-              st.divider()
-
-              st.subheader("📜 Analysis History")
-
-              history_df = pd.DataFrame(st.session_state.history)
-
-              st.dataframe(
-              history_df,
-              use_container_width=True
+            render_history(
+                st.session_state.history
             )
 
         except Exception as e:
@@ -290,3 +307,21 @@ if uploaded_file is not None:
 
             with st.expander("Technical Details"):
                 st.code(str(e))
+
+st.divider()
+
+st.markdown("""
+<div style="
+text-align:center;
+padding:20px;
+color:#6B7280;
+font-size:14px;
+">
+
+Built with ❤️ by <b>Reshma</b><br>
+
+AI Resume Analyzer • Powered by Groq AI • Streamlit
+
+</div>
+""", unsafe_allow_html=True)      
+ 
